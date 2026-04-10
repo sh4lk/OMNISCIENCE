@@ -1,0 +1,64 @@
+[project]
+name = "omniscience"
+version = "1.0.0"
+description = "Framework de cryptanalyse asymetrique en boite noire — 14 moteurs de resolution, acceleration GPU, du chiffrement classique au post-quantique"
+license = {text = "MIT"}
+authors = [
+    {name = "sh4lk"},
+]
+readme = "README.md"
+requires-python = ">=3.10"
+keywords = ["cryptanalysis", "cryptography", "security", "CTF", "cipher", "RSA", "lattice", "brute-force"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Science/Research",
+    "Intended Audience :: Education",
+    "Intended Audience :: Information Technology",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Security :: Cryptography",
+    "Topic :: Scientific/Engineering :: Mathematics",
+]
+dependencies = [
+    "numpy>=1.24",
+    "scipy>=1.10",
+    "sympy>=1.12",
+    "z3-solver>=4.12",
+    "torch>=2.0",
+    "typer[all]>=0.9",
+    "customtkinter>=5.2",
+    "rich>=13.0",
+    "psutil>=5.9",
+    "fpylll>=0.6",
+]
+
+[project.optional-dependencies]
+gpu = [
+    "cupy-cuda12x>=12.0",
+    "pycuda>=2022.2",
+]
+ray = [
+    "ray>=2.9",
+]
+sage = []  # SageMath installed separately
+all = [
+    "cupy-cuda12x>=12.0",
+    "pycuda>=2022.2",
+    "ray>=2.9",
+]
+
+[project.urls]
+Homepage = "https://github.com/sh4lk/omniscience"
+Repository = "https://github.com/sh4lk/omniscience"
+Issues = "https://github.com/sh4lk/omniscience/issues"
+
+[project.scripts]
+omniscience = "omniscience.cli.app:app"
+omniscience-gui = "omniscience.gui.app:launch"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.backends._legacy:_Backend"
