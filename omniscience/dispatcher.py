@@ -39,31 +39,44 @@ from omniscience.solvers.mitm import MITMSolver
 from omniscience.solvers.oracle import OracleAttackSolver
 from omniscience.solvers.classical import ClassicalCipherSolver
 from omniscience.solvers.cross_cipher import CrossCipherSolver
+from omniscience.solvers.symmetric import SymmetricSolver
+from omniscience.solvers.ecdh import ECDHSolver
+from omniscience.solvers.hybrid_scheme import HybridSchemeSolver
 
 log = logging.getLogger(__name__)
 
 
 # Priority mapping: for each detected family, ordered list of solvers to try
 SOLVER_PRIORITY: dict[AlgoFamily, list[str]] = {
-    AlgoFamily.LINEAR: ["algebraic", "classical", "smt_z3", "mitm", "cross_cipher", "bruteforce", "lattice", "neural"],
+    AlgoFamily.LINEAR: ["algebraic", "classical", "smt_z3", "mitm", "cross_cipher", "symmetric", "bruteforce", "lattice", "neural"],
     AlgoFamily.POLYNOMIAL: ["algebraic", "smt_z3", "mitm", "lattice", "bruteforce", "neural"],
-    AlgoFamily.SUBSTITUTION: ["classical", "smt_z3", "algebraic", "cross_cipher", "mitm", "bruteforce", "neural", "lattice"],
+    AlgoFamily.SUBSTITUTION: ["classical", "smt_z3", "algebraic", "cross_cipher", "symmetric", "mitm", "bruteforce", "neural", "lattice"],
     AlgoFamily.LATTICE_BASED: ["lattice", "lattice_advanced", "smt_z3", "algebraic", "bruteforce", "neural"],
     AlgoFamily.KNAPSACK: ["lattice", "algebraic", "smt_z3", "bruteforce", "neural"],
-    AlgoFamily.RSA_LIKE: ["factorization", "algebraic", "lattice_advanced", "oracle", "smt_z3", "bruteforce", "neural"],
-    AlgoFamily.EC_LIKE: ["elliptic_curve", "dlog", "lattice", "algebraic", "smt_z3", "bruteforce", "neural"],
+    AlgoFamily.RSA_LIKE: ["factorization", "hybrid_scheme", "algebraic", "lattice_advanced", "oracle", "smt_z3", "bruteforce", "neural"],
+    AlgoFamily.EC_LIKE: ["elliptic_curve", "ecdh", "dlog", "hybrid_scheme", "lattice", "algebraic", "smt_z3", "bruteforce", "neural"],
     AlgoFamily.LWE_BASED: ["lattice", "lattice_advanced", "smt_z3", "neural", "algebraic", "bruteforce"],
     AlgoFamily.AGCD: ["agcd", "lattice", "factorization", "algebraic", "bruteforce", "neural"],
-    AlgoFamily.DLOG: ["dlog", "factorization", "lattice", "bruteforce", "algebraic", "smt_z3", "neural"],
+    AlgoFamily.DLOG: ["dlog", "factorization", "hybrid_scheme", "lattice", "bruteforce", "algebraic", "smt_z3", "neural"],
     AlgoFamily.NTRU_LIKE: ["lattice_advanced", "lattice", "smt_z3", "algebraic", "bruteforce", "neural"],
+    AlgoFamily.SYMMETRIC_BLOCK: [
+        "symmetric", "classical", "cross_cipher", "mitm", "smt_z3", "algebraic", "bruteforce", "neural",
+    ],
+    AlgoFamily.SYMMETRIC_STREAM: [
+        "symmetric", "cross_cipher", "classical", "algebraic", "bruteforce", "neural",
+    ],
+    AlgoFamily.ECDH: [
+        "ecdh", "elliptic_curve", "dlog", "hybrid_scheme", "lattice", "algebraic", "bruteforce", "neural",
+    ],
     AlgoFamily.HYBRID: [
-        "algebraic", "classical", "cross_cipher", "factorization", "dlog", "mitm",
-        "lattice", "lattice_advanced", "smt_z3", "oracle", "bruteforce", "neural",
+        "hybrid_scheme", "symmetric", "algebraic", "classical", "cross_cipher",
+        "factorization", "ecdh", "dlog", "mitm", "lattice", "lattice_advanced",
+        "smt_z3", "oracle", "bruteforce", "neural",
     ],
     AlgoFamily.UNKNOWN: [
-        "classical", "cross_cipher", "algebraic", "smt_z3", "factorization", "dlog",
-        "mitm", "lattice", "lattice_advanced", "elliptic_curve", "agcd", "oracle",
-        "bruteforce", "neural",
+        "classical", "cross_cipher", "symmetric", "hybrid_scheme", "algebraic", "smt_z3",
+        "factorization", "ecdh", "dlog", "mitm", "lattice", "lattice_advanced",
+        "elliptic_curve", "agcd", "oracle", "bruteforce", "neural",
     ],
 }
 
@@ -76,7 +89,7 @@ class Dispatcher:
         self.resource_mgr = ResourceManager(self.config.hardware)
         self.recon = StatisticalRecon()
 
-        # Solver registry — all 14 engines
+        # Solver registry — all 17 engines
         self._solvers: dict[str, Any] = {
             "algebraic": AlgebraicSolver(),
             "lattice": LatticeSolver(),
@@ -92,6 +105,9 @@ class Dispatcher:
             "oracle": OracleAttackSolver(),
             "classical": ClassicalCipherSolver(),
             "cross_cipher": CrossCipherSolver(),
+            "symmetric": SymmetricSolver(),
+            "ecdh": ECDHSolver(),
+            "hybrid_scheme": HybridSchemeSolver(),
         }
 
         self._timeout_map: dict[str, float] = {
@@ -109,6 +125,9 @@ class Dispatcher:
             "oracle": self.config.timeouts.algebraic,
             "classical": self.config.timeouts.algebraic,
             "cross_cipher": self.config.timeouts.algebraic,
+            "symmetric": self.config.timeouts.algebraic,
+            "ecdh": self.config.timeouts.algebraic,
+            "hybrid_scheme": self.config.timeouts.algebraic,
         }
 
         # Callbacks for live status updates

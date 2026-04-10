@@ -23,6 +23,9 @@ class AlgoFamily(enum.Enum):
     AGCD = "agcd"
     DLOG = "discrete_log"
     NTRU_LIKE = "ntru_like"
+    SYMMETRIC_BLOCK = "symmetric_block"
+    SYMMETRIC_STREAM = "symmetric_stream"
+    ECDH = "ecdh"
     HYBRID = "hybrid"
 
 

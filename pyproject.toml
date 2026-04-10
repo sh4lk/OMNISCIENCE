@@ -1,7 +1,7 @@
 [project]
 name = "omniscience"
 version = "1.0.0"
-description = "Framework de cryptanalyse asymetrique en boite noire — 14 moteurs de resolution, acceleration GPU, du chiffrement classique au post-quantique"
+description = "Framework de cryptanalyse en boite noire (symetrique + asymetrique) — 17 moteurs, acceleration GPU, ECDH, schemas hybrides, du classique au post-quantique"
 license = {text = "MIT"}
 authors = [
     {name = "sh4lk"},

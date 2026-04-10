@@ -169,7 +169,7 @@ def attack(
     console.print(
         Panel(
             "[bold cyan]OMNISCIENCE[/bold cyan] — Black-Box Asymmetric Cryptanalysis\n"
-            "[dim]14 solver engines • GPU acceleration • Ray parallelism[/dim]",
+            "[dim]17 solver engines • GPU acceleration • Ray parallelism[/dim]",
             border_style="cyan",
         )
     )

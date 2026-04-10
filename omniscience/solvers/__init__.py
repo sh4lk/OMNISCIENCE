@@ -12,6 +12,9 @@ from omniscience.solvers.mitm import MITMSolver
 from omniscience.solvers.oracle import OracleAttackSolver
 from omniscience.solvers.classical import ClassicalCipherSolver
 from omniscience.solvers.cross_cipher import CrossCipherSolver
+from omniscience.solvers.symmetric import SymmetricSolver
+from omniscience.solvers.ecdh import ECDHSolver
+from omniscience.solvers.hybrid_scheme import HybridSchemeSolver
 from omniscience.solvers.sage_bridge import SageBridge
 
 __all__ = [
@@ -29,5 +32,8 @@ __all__ = [
     "OracleAttackSolver",
     "ClassicalCipherSolver",
     "CrossCipherSolver",
+    "SymmetricSolver",
+    "ECDHSolver",
+    "HybridSchemeSolver",
     "SageBridge",
 ]

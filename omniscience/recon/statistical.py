@@ -79,7 +79,17 @@ class StatisticalRecon:
         # 12. NTRU / ring-lattice indicators
         result.details["ntru_like"] = self._detect_ntru_like(pub, instance.modulus)
 
-        # 13. Classify
+        # 13. Symmetric cipher indicators (block / stream)
+        result.details["symmetric_block"] = self._detect_symmetric_block(pt, ct)
+        result.details["symmetric_stream"] = self._detect_symmetric_stream(pt, ct)
+
+        # 14. ECDH indicators
+        result.details["ecdh_like"] = self._detect_ecdh_like(pub, ct, instance.modulus)
+
+        # 15. Hybrid scheme indicators
+        result.details["hybrid_scheme"] = self._detect_hybrid_scheme(pub, ct, instance.ct_target_as_int_list(), instance.modulus)
+
+        # 16. Classify
         result.algo_family, result.confidence = self._classify(result)
         log.info("Classification: %s (confidence %.2f%%)", result.algo_family.value, result.confidence * 100)
 
@@ -430,6 +440,195 @@ class StatisticalRecon:
         return min(score, 1.0)
 
     # ------------------------------------------------------------------ #
+    #  Symmetric block cipher detection                                   #
+    # ------------------------------------------------------------------ #
+
+    @staticmethod
+    def _detect_symmetric_block(pt: NDArray, ct: NDArray) -> float:
+        """Score [0,1] for symmetric block cipher.
+
+        Indicators:
+          - Ciphertext length is a multiple of common block sizes (8, 16, 32)
+          - Repeated plaintext blocks → repeated ciphertext blocks (ECB)
+          - High entropy ciphertext with block-aligned structure
+          - Avalanche: small PT change → large CT change within blocks
+        """
+        score = 0.0
+        n = len(ct)
+        if n < 8:
+            return 0.0
+
+        # Block-aligned length
+        for bs in (16, 8, 32):
+            if n % bs == 0 and n >= bs * 2:
+                score += 0.15
+                break
+
+        # ECB detection: check for repeated blocks
+        for bs in (16, 8):
+            if n < bs * 2:
+                continue
+            blocks = [tuple(ct[i:i + bs]) for i in range(0, n - bs + 1, bs)]
+            if len(blocks) != len(set(blocks)):
+                score += 0.4  # repeated blocks → ECB mode
+                break
+
+        # Avalanche: adjacent plaintexts should give very different ciphertexts
+        if len(pt) >= 4 and len(ct) >= 4:
+            n_check = min(len(pt), len(ct)) - 1
+            diff_bits = 0
+            total_bits = 0
+            for i in range(n_check):
+                xor_val = int(pt[i]) ^ int(pt[i + 1])
+                ct_xor = int(ct[i]) ^ int(ct[i + 1])
+                if xor_val <= 1:  # adjacent or near plaintexts
+                    diff_bits += bin(ct_xor).count('1')
+                    total_bits += 8
+            if total_bits > 0:
+                avalanche = diff_bits / total_bits
+                if avalanche > 0.3:
+                    score += 0.25
+
+        return min(score, 1.0)
+
+    # ------------------------------------------------------------------ #
+    #  Symmetric stream cipher detection                                  #
+    # ------------------------------------------------------------------ #
+
+    @staticmethod
+    def _detect_symmetric_stream(pt: NDArray, ct: NDArray) -> float:
+        """Score [0,1] for symmetric stream cipher.
+
+        Indicators:
+          - XOR relationship: ct = pt XOR keystream
+          - Keystream has high entropy
+          - No block alignment required
+          - Position-dependent: same pt at different positions → different ct
+        """
+        score = 0.0
+        n = min(len(pt), len(ct))
+        if n < 4:
+            return 0.0
+
+        # Check XOR keystream
+        ks = [(int(pt[i]) ^ int(ct[i])) & 0xFF for i in range(n)]
+
+        # Keystream entropy should be high
+        ks_arr = np.array(ks, dtype=np.uint8)
+        _, counts = np.unique(ks_arr, return_counts=True)
+        if len(counts) > 0:
+            probs = counts / counts.sum()
+            entropy = -float(np.sum(probs * np.log2(probs + 1e-30)))
+            if entropy > 5.0:
+                score += 0.3
+
+        # Position-dependent: same pt value at different positions → different ct
+        pt_positions: dict[int, list[int]] = {}
+        for i in range(n):
+            pt_positions.setdefault(int(pt[i]), []).append(i)
+
+        pos_dependent = 0
+        total_checks = 0
+        for val, positions in pt_positions.items():
+            if len(positions) >= 2:
+                ct_vals = [int(ct[pos]) for pos in positions]
+                if len(set(ct_vals)) > 1:
+                    pos_dependent += 1
+                total_checks += 1
+
+        if total_checks > 0 and pos_dependent / total_checks > 0.5:
+            score += 0.35
+
+        # Non-block-aligned: length not divisible by common block sizes
+        if len(ct) % 16 != 0 and len(ct) % 8 != 0:
+            score += 0.15
+
+        return min(score, 1.0)
+
+    # ------------------------------------------------------------------ #
+    #  ECDH detection                                                     #
+    # ------------------------------------------------------------------ #
+
+    @staticmethod
+    def _detect_ecdh_like(pub: NDArray, ct: NDArray, modulus: int | None) -> float:
+        """Score [0,1] for ECDH key exchange.
+
+        Indicators:
+          - Public key has 8+ values (a, b, Gx, Gy, Ax, Ay, Bx, By)
+          - Or 6 values + ciphertext has 2 more coordinates
+          - Points satisfy curve equation
+        """
+        score = 0.0
+        pub_list = pub.flatten().tolist()
+
+        if len(pub_list) >= 8:
+            score += 0.4
+            # Check if points are on the curve
+            if modulus and modulus > 2:
+                a, b = int(pub_list[0]), int(pub_list[1])
+                for i in range(2, min(len(pub_list) - 1, 8), 2):
+                    x, y = int(pub_list[i]) % modulus, int(pub_list[i + 1]) % modulus
+                    lhs = (y * y) % modulus
+                    rhs = (x * x * x + a * x + b) % modulus
+                    if lhs == rhs:
+                        score += 0.15
+
+        elif len(pub_list) >= 6 and len(ct) >= 2:
+            score += 0.3
+
+        return min(score, 1.0)
+
+    # ------------------------------------------------------------------ #
+    #  Hybrid scheme detection                                            #
+    # ------------------------------------------------------------------ #
+
+    @staticmethod
+    def _detect_hybrid_scheme(
+        pub: NDArray, ct: NDArray, ct_target: list[int], modulus: int | None
+    ) -> float:
+        """Score [0,1] for hybrid (asymmetric + symmetric) scheme.
+
+        Indicators:
+          - Ciphertext has two distinct regions (different entropy)
+          - First part looks like asymmetric output (large values, mod N)
+          - Second part looks like symmetric output (uniform high entropy bytes)
+        """
+        score = 0.0
+        if len(ct_target) < 8:
+            return 0.0
+
+        # Check for entropy split
+        for split_ratio in (0.1, 0.2, 0.3, 0.5):
+            split = max(2, int(len(ct_target) * split_ratio))
+            first = ct_target[:split]
+            second = ct_target[split:]
+
+            if len(second) < 4:
+                continue
+
+            # First part: fewer unique values or structured
+            unique_first = len(set(first)) / max(len(first), 1)
+            unique_second = len(set(second)) / max(len(second), 1)
+
+            if unique_second > unique_first * 1.5:
+                score += 0.2
+                break
+
+        # Large modulus + extra payload → RSA-KEM or similar
+        if modulus and modulus.bit_length() >= 256:
+            mod_bytes = (modulus.bit_length() + 7) // 8
+            if len(ct_target) > mod_bytes + 8:
+                score += 0.3
+
+        # Public key with RSA-like exponent + long ciphertext
+        pub_list = pub.flatten().tolist()
+        rsa_exponents = {3, 5, 7, 17, 257, 65537}
+        if any(int(v) in rsa_exponents for v in pub_list) and len(ct_target) > 32:
+            score += 0.2
+
+        return min(score, 1.0)
+
+    # ------------------------------------------------------------------ #
     #  Classification engine                                              #
     # ------------------------------------------------------------------ #
 
@@ -443,12 +642,20 @@ class StatisticalRecon:
         ec_score = r.details.get("ec_like", 0.0)
         agcd_score = r.details.get("agcd_like", 0.0)
         ntru_score = r.details.get("ntru_like", 0.0)
+        sym_block_score = r.details.get("symmetric_block", 0.0)
+        sym_stream_score = r.details.get("symmetric_stream", 0.0)
+        ecdh_score = r.details.get("ecdh_like", 0.0)
+        hybrid_score = r.details.get("hybrid_scheme", 0.0)
 
         scores[AlgoFamily.RSA_LIKE] += rsa_score
         scores[AlgoFamily.DLOG] += dlog_score
         scores[AlgoFamily.EC_LIKE] += ec_score
         scores[AlgoFamily.AGCD] += agcd_score
         scores[AlgoFamily.NTRU_LIKE] += ntru_score
+        scores[AlgoFamily.SYMMETRIC_BLOCK] += sym_block_score
+        scores[AlgoFamily.SYMMETRIC_STREAM] += sym_stream_score
+        scores[AlgoFamily.ECDH] += ecdh_score
+        scores[AlgoFamily.HYBRID] += hybrid_score * 0.8  # boost hybrid detection
 
         # --- Generic indicators ---
 

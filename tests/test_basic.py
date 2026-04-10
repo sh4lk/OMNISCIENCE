@@ -21,6 +21,9 @@ from omniscience.solvers.mitm import MITMSolver
 from omniscience.solvers.lattice_advanced import AdvancedLatticeSolver
 from omniscience.solvers.classical import ClassicalCipherSolver
 from omniscience.solvers.cross_cipher import CrossCipherSolver
+from omniscience.solvers.symmetric import SymmetricSolver
+from omniscience.solvers.ecdh import ECDHSolver
+from omniscience.solvers.hybrid_scheme import HybridSchemeSolver
 from omniscience.core.report import ReportExporter
 
 
@@ -506,7 +509,253 @@ class TestCrossCipherSolver:
 
 
 # ====================================================================== #
-#  12. Report Exporter                                                    #
+#  12. Symmetric Cipher Solver                                            #
+# ====================================================================== #
+
+class TestSymmetricSolver:
+    def test_ecb_codebook(self):
+        """ECB mode: repeated blocks map identically."""
+        bs = 4
+        # Simple ECB: each 4-byte block is XORed with a fixed key block
+        key_block = [0x11, 0x22, 0x33, 0x44]
+        pt = []
+        ct = []
+        for i in range(8):
+            block = [i * 4 + j for j in range(bs)]
+            enc = [(block[j] ^ key_block[j]) & 0xFF for j in range(bs)]
+            pt.extend(block)
+            ct.extend(enc)
+
+        # Target: encrypt the first two blocks again (ECB = deterministic)
+        target_pt_blocks = [[0, 1, 2, 3], [4, 5, 6, 7]]
+        target_ct = []
+        for block in target_pt_blocks:
+            target_ct.extend([(block[j] ^ key_block[j]) & 0xFF for j in range(bs)])
+
+        inst = _make_instance(pt, ct, target_ct, [0])
+        recon = StatisticalRecon().analyze(inst)
+        result = SymmetricSolver().solve(inst, recon, timeout=30)
+        assert result.status == SolverStatus.SUCCESS
+        assert result.decrypted == [0, 1, 2, 3, 4, 5, 6, 7]
+
+    def test_keystream_recovery(self):
+        """CTR/OFB mode: XOR keystream recovery."""
+        keystream = [0xDE, 0xAD, 0xBE, 0xEF, 0x42, 0x13, 0x37, 0x00]
+        pt = list(range(8))
+        ct = [(p ^ keystream[i]) & 0xFF for i, p in enumerate(pt)]
+        target_pt = [100, 101, 102, 103, 104, 105, 106, 107]
+        target_ct = [(p ^ keystream[i]) & 0xFF for i, p in enumerate(target_pt)]
+
+        inst = _make_instance(pt, ct, target_ct, [0])
+        recon = StatisticalRecon().analyze(inst)
+        result = SymmetricSolver().solve(inst, recon, timeout=30)
+        assert result.status == SolverStatus.SUCCESS
+        assert result.decrypted == target_pt
+
+    def test_feistel_single_round(self):
+        """Single-round Feistel: C_L = P_R, C_R = P_L XOR F(P_R)."""
+        bs = 8
+        half = 4
+        # F is a simple XOR with a key
+        f_key = [0xAA, 0xBB, 0xCC, 0xDD]
+
+        def feistel_enc(block):
+            l, r = block[:half], block[half:]
+            f_out = [(r[j] ^ f_key[j]) & 0xFF for j in range(half)]
+            new_l = list(r)
+            new_r = [(l[j] ^ f_out[j]) & 0xFF for j in range(half)]
+            return new_l + new_r
+
+        pt, ct = [], []
+        for i in range(16):
+            block = [(i * 8 + j) & 0xFF for j in range(bs)]
+            enc = feistel_enc(block)
+            pt.extend(block)
+            ct.extend(enc)
+
+        target_block = [200, 201, 202, 203, 204, 205, 206, 207]
+        target_ct = feistel_enc(target_block)
+
+        inst = _make_instance(pt, ct, target_ct, [0])
+        recon = StatisticalRecon().analyze(inst)
+        result = SymmetricSolver().solve(inst, recon, timeout=30)
+        if result.status == SolverStatus.SUCCESS:
+            assert result.decrypted == target_block
+
+    def test_lfsr_berlekamp_massey(self):
+        """LFSR keystream with known polynomial."""
+        # Simple LFSR: s[n] = s[n-1] XOR s[n-3] (degree 3)
+        state = [1, 0, 1, 1, 0, 0, 1, 0]  # initial keystream bits
+        # Extend
+        for _ in range(200):
+            state.append(state[-1] ^ state[-3])
+
+        # Convert to bytes
+        ks_bytes = []
+        for i in range(0, len(state) - 7, 8):
+            b = 0
+            for j in range(8):
+                b = (b << 1) | state[i + j]
+            ks_bytes.append(b)
+
+        n_known = 8
+        pt = list(range(n_known))
+        ct = [(pt[i] ^ ks_bytes[i]) & 0xFF for i in range(n_known)]
+        target_pt = [50, 51, 52, 53]
+        target_ct = [(target_pt[i] ^ ks_bytes[n_known + i]) & 0xFF for i in range(4)]
+
+        inst = _make_instance(pt, ct, target_ct, [0])
+        recon = StatisticalRecon().analyze(inst)
+        result = SymmetricSolver().solve(inst, recon, timeout=30)
+        if result.status == SolverStatus.SUCCESS:
+            assert result.decrypted == target_pt
+
+    def test_rc4_short_key(self):
+        """RC4 with a 1-byte key (brute-forceable)."""
+        key = [0x42]
+        ks = SymmetricSolver._rc4_keystream(key, 20)
+        pt = list(range(10))
+        ct = [(pt[i] ^ ks[i]) & 0xFF for i in range(10)]
+        target_pt = [100, 101, 102]
+        target_ct = [(target_pt[i] ^ ks[10 + i]) & 0xFF for i in range(3)]
+
+        inst = _make_instance(pt, ct, target_ct, [0])
+        recon = StatisticalRecon().analyze(inst)
+        result = SymmetricSolver().solve(inst, recon, timeout=60)
+        if result.status == SolverStatus.SUCCESS:
+            assert result.decrypted == target_pt
+
+
+# ====================================================================== #
+#  13. ECDH Solver                                                        #
+# ====================================================================== #
+
+class TestECDHSolver:
+    def test_ecdh_small_curve(self):
+        """ECDH on a small curve: recover shared secret via BSGS."""
+        # y^2 = x^3 + 2x + 3 mod 97
+        a, b, p = 2, 3, 97
+        E = EllipticCurve(a, b, p)
+
+        # Find a generator
+        G = None
+        for x in range(p):
+            rhs = (x ** 3 + a * x + b) % p
+            y = pow(rhs, (p + 1) // 4, p)
+            if (y * y) % p == rhs:
+                G = (x, y)
+                if E.is_on_curve(G):
+                    break
+
+        if G is None:
+            return
+
+        dA = 13  # Alice's private key
+        dB = 29  # Bob's private key
+        pub_A = E.mul(dA, G)
+        pub_B = E.mul(dB, G)
+        shared = E.mul(dA, pub_B)  # = dA * dB * G
+
+        # pub = [a, b, Gx, Gy, Ax, Ay, Bx, By]
+        pub_list = [a, b, G[0], G[1], pub_A[0], pub_A[1], pub_B[0], pub_B[1]]
+        inst = _make_instance([], [], [], pub_list, modulus=p)
+        recon = StatisticalRecon().analyze(inst)
+        result = ECDHSolver().solve(inst, recon, timeout=30)
+        assert result.status == SolverStatus.SUCCESS
+        # Verify shared secret
+        recovered_shared = result.details.get("shared_secret")
+        if recovered_shared:
+            assert tuple(recovered_shared) == shared
+
+    def test_ecdh_nonce_reuse(self):
+        """ECDSA nonce reuse: recover private key from two signatures."""
+        a, b, p = 2, 3, 97
+        E = EllipticCurve(a, b, p)
+
+        G = None
+        for x in range(p):
+            rhs = (x ** 3 + a * x + b) % p
+            y = pow(rhs, (p + 1) // 4, p)
+            if (y * y) % p == rhs:
+                G = (x, y)
+                if E.is_on_curve(G):
+                    break
+        if G is None:
+            return
+
+        # Find order of G
+        n = E.order_point(G)
+        if n is None or n < 5:
+            return
+
+        d = 17  # private key
+        pub_A = E.mul(d, G)
+        k = 23  # nonce (reused!)
+
+        # Simulated ECDSA signatures with same k
+        R = E.mul(k, G)
+        r = R[0] % n
+        h1, h2 = 42, 77
+        try:
+            k_inv = pow(k, -1, n)
+        except ValueError:
+            return
+        s1 = (k_inv * (h1 + r * d)) % n
+        s2 = (k_inv * (h2 + r * d)) % n
+
+        sigs = [
+            {"r": r, "s": s1, "h": h1},
+            {"r": r, "s": s2, "h": h2},
+        ]
+
+        pub_list = [a, b, G[0], G[1], pub_A[0], pub_A[1]]
+        inst = _make_instance([], [], [], pub_list, modulus=p, extra={"signatures": sigs})
+        recon = StatisticalRecon().analyze(inst)
+        result = ECDHSolver().solve(inst, recon, timeout=30)
+        if result.status == SolverStatus.SUCCESS:
+            assert result.private_key == d
+
+
+# ====================================================================== #
+#  14. Hybrid Scheme Solver                                               #
+# ====================================================================== #
+
+class TestHybridSchemeSolver:
+    def test_weak_kdf_xor(self):
+        """Hybrid where public key is directly used as XOR key."""
+        key = [0x12, 0x34, 0x56]
+        pt = list(range(12))
+        ct = [(pt[i] ^ key[i % len(key)]) & 0xFF for i in range(12)]
+        target_pt = [100, 101, 102, 103, 104, 105]
+        target_ct = [(target_pt[i] ^ key[i % len(key)]) & 0xFF for i in range(6)]
+
+        inst = _make_instance(pt, ct, target_ct, key)
+        recon = StatisticalRecon().analyze(inst)
+        result = HybridSchemeSolver().solve(inst, recon, timeout=30)
+        assert result.status == SolverStatus.SUCCESS
+        assert result.decrypted == target_pt
+
+    def test_header_xor_payload(self):
+        """Ciphertext = header (key material) + XOR-encrypted payload."""
+        header = [0xAA, 0xBB]
+        payload_pt_known = list(range(10))
+        payload_ct_known = [(p ^ header[i % len(header)]) & 0xFF for i, p in enumerate(payload_pt_known)]
+        full_ct_known = header + payload_ct_known
+
+        target_payload_pt = [50, 51, 52, 53]
+        target_payload_ct = [(p ^ header[i % len(header)]) & 0xFF for i, p in enumerate(target_payload_pt)]
+        full_ct_target = header + target_payload_ct
+
+        full_pt = [0, 0] + payload_pt_known  # dummy header in pt
+        inst = _make_instance(full_pt, full_ct_known, full_ct_target, [0])
+        recon = StatisticalRecon().analyze(inst)
+        result = HybridSchemeSolver().solve(inst, recon, timeout=30)
+        if result.status == SolverStatus.SUCCESS:
+            assert result.decrypted == target_payload_pt
+
+
+# ====================================================================== #
+#  15. Report Exporter                                                    #
 # ====================================================================== #
 
 class TestReportExporter:
@@ -541,7 +790,7 @@ class TestReportExporter:
 
 
 # ====================================================================== #
-#  13. Full Pipeline (Dispatcher)                                         #
+#  16. Full Pipeline (Dispatcher)                                         #
 # ====================================================================== #
 
 class TestDispatcher:

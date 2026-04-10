@@ -134,7 +134,8 @@ class OmniscienceGUI:
         self.solver_labels: dict[str, Any] = {}
         for name in [
             "algebraic", "lattice", "smt_z3", "neural", "factorization",
-            "dlog", "elliptic_curve", "bruteforce", "mitm", "classical", "cross_cipher",
+            "dlog", "elliptic_curve", "bruteforce", "mitm", "classical",
+            "cross_cipher", "symmetric", "ecdh", "hybrid_scheme",
         ]:
             bar_frame = ctk.CTkFrame(left)
             bar_frame.pack(fill="x", padx=10, pady=1)

@@ -1,8 +1,8 @@
 # OMNISCIENCE
 
-**Framework de cryptanalyse asymetrique en boite noire** -- 14 moteurs de resolution, acceleration GPU, des chiffrements classiques jusqu'aux attaques post-quantiques sur les reseaux euclidiens.
+**Framework de cryptanalyse en boite noire (symetrique + asymetrique)** -- 17 moteurs de resolution, acceleration GPU, des chiffrements classiques jusqu'aux attaques post-quantiques sur les reseaux euclidiens.
 
-OMNISCIENCE prend un texte chiffre inconnu et, en utilisant uniquement des paires clair/chiffre connues, identifie automatiquement le schema de chiffrement et le casse. Aucune connaissance prealable de l'algorithme n'est requise.
+OMNISCIENCE prend un texte chiffre inconnu et, en utilisant uniquement des paires clair/chiffre connues, identifie automatiquement le schema de chiffrement et le casse. Supporte la cryptanalyse symetrique (blocs, flux), asymetrique (RSA, EC, DLog), les schemas hybrides (RSA-KEM, ECIES) et l'echange de cles ECDH. Aucune connaissance prealable de l'algorithme n'est requise.
 
 ---
 
@@ -23,6 +23,9 @@ OMNISCIENCE prend un texte chiffre inconnu et, en utilisant uniquement des paire
 | **Oracle** | Bleichenbacher (RSA PKCS#1), Vaudenay (padding CBC), oracle LSB adaptatif |
 | **Classique** | Cesar, Affine, Vigenere, Beaufort, Autokey, Hill, substitution, rail-fence, XOR mono/multi |
 | **Croisement** | Two-time pad, crib dragging, decomposition de composition, correlation de cles liees |
+| **Symetrique** | Detection ECB/CBC/CTR, Feistel, LFSR (Berlekamp-Massey), RC4 bias, cle DES faible, keystream |
+| **ECDH** | BSGS, Pohlig-Hellman, Smart, courbe invalide, twist, petit sous-groupe, nonce ECDSA reutilise |
+| **Hybride** | RSA-KEM, ECIES, ElGamal-hybride, KDF faible, decomposition header+payload |
 
 ### Architecture
 
@@ -43,7 +46,7 @@ Entree (paires PT/CT + CT cible)
         |
         v
   +--------------------+
-  |   14 moteurs de     |  Chaque solveur tourne independamment avec timeout
+  |   17 moteurs de     |  Chaque solveur tourne independamment avec timeout
   |   resolution        |  Le premier succes arrete tous les autres
   +--------------------+
         |
@@ -211,6 +214,9 @@ omniscience/
     oracle.py         # Bleichenbacher, Vaudenay, oracle LSB
     classical.py      # Cesar, Vigenere, Hill, substitution, XOR
     cross_cipher.py   # Two-time pad, crib dragging, composition
+    symmetric.py      # Blocs (ECB/CBC/Feistel), flux (LFSR/RC4)
+    ecdh.py           # ECDH, courbe invalide, twist, nonce ECDSA
+    hybrid_scheme.py  # RSA-KEM, ECIES, ElGamal-hybride, KDF
     sage_bridge.py    # Pont subprocess SageMath
   dispatcher.py       # Orchestrateur avec routage par priorite
   hardware/
@@ -220,7 +226,7 @@ omniscience/
   gui/
     app.py            # GUI CustomTkinter
 tests/
-  test_basic.py       # 40+ tests sur tous les modules
+  test_basic.py       # 60+ tests sur tous les modules
 ```
 
 ---
@@ -239,8 +245,11 @@ OMNISCIENCE detecte automatiquement et route vers les solveurs appropries :
 - `AGCD` -- PGCD approche (schemas de chiffrement homomorphe)
 - `NTRU_LIKE` -- NTRU, reseaux sur anneaux
 - `LWE_BASED` -- Learning With Errors
-- `HYBRID` -- Chiffrements multi-couches / composes
-- `UNKNOWN` -- Les 14 moteurs sont testes par ordre de priorite
+- `SYMMETRIC_BLOCK` -- Chiffrements par blocs (AES, DES, Feistel, ECB/CBC/CTR)
+- `SYMMETRIC_STREAM` -- Chiffrements par flux (LFSR, RC4, keystream XOR)
+- `ECDH` -- Echange de cles Diffie-Hellman sur courbes elliptiques
+- `HYBRID` -- Schemas hybrides (RSA-KEM, ECIES, ElGamal+AES)
+- `UNKNOWN` -- Les 17 moteurs sont testes par ordre de priorite
 
 ---
 
