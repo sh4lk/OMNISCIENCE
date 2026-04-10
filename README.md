@@ -106,7 +106,7 @@ pip install -e ".[all]"
 ### Ligne de commande (CLI)
 
 ```bash
-# Attaque complete sur un chiffrement
+# Attaque complete sur un chiffrement (avec cle publique)
 omniscience attack \
   --pub "3" \
   --pt "0,1,2,3,4,5,6,7,8,9" \
@@ -116,9 +116,15 @@ omniscience attack \
   --format int \
   --verbose
 
+# Attaque SANS cle publique (Cesar, Vigenere, XOR, etc.)
+omniscience attack \
+  --pt "72,101,108,108,111" \
+  --ct "75,104,111,111,114" \
+  --target "78,107,114,114,117" \
+  --format int
+
 # Reconnaissance uniquement (pas de resolution)
 omniscience recon \
-  --pub "3" \
   --pt "0,1,2,3,4,5" \
   --ct "7,10,13,16,19,22" \
   --mod 251

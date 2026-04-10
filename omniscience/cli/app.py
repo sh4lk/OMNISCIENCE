@@ -42,14 +42,14 @@ def _setup_logging(verbose: bool) -> None:
 
 
 def _load_instance(
-    pub_key: str,
+    pub_key: Optional[str],
     plaintext: str,
     ciphertext: str,
     target: str,
     modulus: Optional[int],
     input_format: str,
 ) -> CryptoInstance:
-    """Parse inputs from CLI arguments."""
+    """Parse les entrees depuis les arguments CLI."""
 
     def parse_data(raw: str, fmt: str):
         if fmt == "hex":
@@ -62,18 +62,18 @@ def _load_instance(
         elif fmt == "file":
             p = Path(raw)
             if not p.exists():
-                console.print(f"[red]File not found: {raw}[/red]")
+                console.print(f"[red]Fichier introuvable : {raw}[/red]")
                 raise typer.Exit(1)
             content = p.read_text().strip()
             try:
                 return json.loads(content)
             except json.JSONDecodeError:
                 return bytes.fromhex(content)
-        else:  # "int" — comma-separated integers
+        else:  # "int" — entiers separes par des virgules
             return [int(x.strip()) for x in raw.split(",")]
 
     return CryptoInstance(
-        public_key=parse_data(pub_key, input_format),
+        public_key=parse_data(pub_key, input_format) if pub_key else None,
         plaintext=parse_data(plaintext, input_format),
         ciphertext_known=parse_data(ciphertext, input_format),
         ciphertext_target=parse_data(target, input_format),
@@ -146,10 +146,10 @@ def _print_report(report: AttackReport) -> None:
 
 @app.command()
 def attack(
-    pub_key: str = typer.Option(..., "--pub", "-p", help="Public key (format depends on --format)"),
-    plaintext: str = typer.Option(..., "--pt", help="Known plaintext"),
-    ciphertext: str = typer.Option(..., "--ct", help="Known ciphertext"),
-    target: str = typer.Option(..., "--target", "-t", help="Ciphertext to decrypt"),
+    pub_key: Optional[str] = typer.Option(None, "--pub", "-p", help="Cle publique (optionnel, format selon --format)"),
+    plaintext: str = typer.Option(..., "--pt", help="Texte clair connu"),
+    ciphertext: str = typer.Option(..., "--ct", help="Texte chiffre connu"),
+    target: str = typer.Option(..., "--target", "-t", help="Texte chiffre a dechiffrer"),
     modulus: Optional[int] = typer.Option(None, "--mod", "-m", help="Known modulus (if any)"),
     input_format: str = typer.Option("int", "--format", "-f", help="Input format: int, hex, base64, json, file"),
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Enable debug logging"),
@@ -224,7 +224,7 @@ def info() -> None:
 
 @app.command()
 def recon(
-    pub_key: str = typer.Option(..., "--pub", "-p"),
+    pub_key: Optional[str] = typer.Option(None, "--pub", "-p"),
     plaintext: str = typer.Option(..., "--pt"),
     ciphertext: str = typer.Option(..., "--ct"),
     target: str = typer.Option("", "--target", "-t"),

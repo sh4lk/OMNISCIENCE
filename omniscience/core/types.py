@@ -50,15 +50,17 @@ class CryptoInstance:
         extra: Arbitrary metadata from the user or recon phase.
     """
 
-    public_key: bytes | list[int] | int
-    plaintext: bytes | list[int]
-    ciphertext_known: bytes | list[int]
-    ciphertext_target: bytes | list[int]
+    public_key: bytes | list[int] | int | None = None
+    plaintext: bytes | list[int] = field(default_factory=list)
+    ciphertext_known: bytes | list[int] = field(default_factory=list)
+    ciphertext_target: bytes | list[int] = field(default_factory=list)
     modulus: int | None = None
     key_size_bits: int | None = None
     extra: dict[str, Any] = field(default_factory=dict)
 
     def pub_as_int_list(self) -> list[int]:
+        if self.public_key is None:
+            return []
         if isinstance(self.public_key, int):
             return [self.public_key]
         if isinstance(self.public_key, bytes):
